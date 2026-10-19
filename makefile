@@ -1,2 +1,2 @@
 run:
-	go run -tags wayland .
+	go run -tags wayland ./src/.

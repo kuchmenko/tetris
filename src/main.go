@@ -1,29 +1,41 @@
 package main
 
 import (
+	"fmt"
 	"math/rand"
-	"time"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
 
+type Drawable interface {
+	Draw()
+	Move(position rl.Vector2)
+}
+
 type Grid struct {
-	Size int
+	CellSize int
+	Cols     int
+	Rows     int
+	Position rl.Vector2
 }
 
 func (g *Grid) Draw() {
-	for i := 0; i < g.Size; i++ {
-		for j := 0; j < g.Size; j++ {
-			rl.DrawRectangle(int32(i*g.Size), int32(j*g.Size), int32(g.Size), int32(g.Size), rl.LightGray)
-			rl.DrawRectangleLines(int32(i*g.Size), int32(j*g.Size), int32(g.Size), int32(g.Size), rl.Black)
+	for i := 0; i < g.Cols; i++ {
+		for j := 0; j < g.Rows; j++ {
+			rl.DrawRectangle(int32(i*g.CellSize), int32(j*g.CellSize), int32(g.CellSize), int32(g.CellSize), rl.LightGray)
+			rl.DrawRectangleLines(int32(i*g.CellSize), int32(j*g.CellSize), int32(g.CellSize), int32(g.CellSize), rl.Black)
 		}
 	}
+}
+
+func (g *Grid) Move(position rl.Vector2) {
+	_ = position
 }
 
 func (g *Grid) IsInGrid(position rl.Vector2) bool {
 	x := int(position.X)
 	y := int(position.Y)
-	max := g.Size * g.Size
+	max := g.CellSize * g.CellSize
 
 	if x < 0 || x >= max {
 		return false
@@ -37,11 +49,11 @@ func (g *Grid) IsInGrid(position rl.Vector2) bool {
 }
 
 func (g *Grid) ToGridPosition(x, y int) rl.Vector2 {
-	return rl.NewVector2(float32(x*g.Size), float32(y*g.Size))
+	return rl.NewVector2(float32(x*g.CellSize), float32(y*g.CellSize))
 }
 
 func (g *Grid) ViewportBounds(x, y float32) rl.Vector2 {
-	return rl.NewVector2(x*float32(g.Size), y*float32(g.Size))
+	return rl.NewVector2(x*float32(g.CellSize), y*float32(g.CellSize))
 }
 
 type Cell struct {
@@ -94,21 +106,17 @@ func NewFigure(cells []Cell, position rl.Vector2, color rl.Color) Figure {
 	}
 }
 
-func (f *Figure) Move(dt float32) {
-	f.Position = f.Position.Add(rl.NewVector2(f.Velocity.X*dt, f.Velocity.Y*dt))
-	position := rl.NewVector2(f.Velocity.X*dt, f.Velocity.Y*dt)
+func (f *Figure) Move(vector rl.Vector2) {
+	f.Position = f.Position.Add(vector)
 	for i := range f.Cells {
-		f.Cells[i].Move(position)
+		f.Cells[i].Move(vector)
 	}
 }
 
 func (f *Figure) Draw() {
-	for _, cell := range f.Cells {
-		if cell.Color != f.Color {
-			cell.Color = f.Color
-		}
-
-		cell.Draw()
+	for i := range f.Cells {
+		f.Cells[i].Color = f.Color
+		f.Cells[i].Draw()
 	}
 }
 
@@ -144,7 +152,7 @@ func (f *Figure) Clone() Figure {
 }
 
 func NewLShape(grid *Grid, position rl.Vector2, color rl.Color) Figure {
-	gridSize := grid.Size
+	gridSize := grid.CellSize
 
 	return NewFigure([]Cell{
 		NewCell(rl.NewVector2(0, 0), gridSize, color),
@@ -155,7 +163,7 @@ func NewLShape(grid *Grid, position rl.Vector2, color rl.Color) Figure {
 }
 
 func NewSquareShape(grid *Grid, position rl.Vector2, color rl.Color) Figure {
-	gridSize := grid.Size
+	gridSize := grid.CellSize
 
 	return NewFigure([]Cell{
 		NewCell(rl.NewVector2(0, 0), gridSize, color),
@@ -166,7 +174,7 @@ func NewSquareShape(grid *Grid, position rl.Vector2, color rl.Color) Figure {
 }
 
 func NewLongShapehape(grid *Grid, position rl.Vector2, color rl.Color) Figure {
-	gridSize := grid.Size
+	gridSize := grid.CellSize
 
 	return NewFigure([]Cell{
 		NewCell(rl.NewVector2(0, 0), gridSize, color),
@@ -186,13 +194,14 @@ func isFigureCollide(figure *Figure, figures []Figure) bool {
 	return false
 }
 
+const MoveTick = 500
+
 type World struct {
-	Grid        Grid
-	Active      *Figure
-	Figures     []Figure
-	MoveStep    int
-	LastTime    time.Time
-	BottomRight rl.Vector2
+	Grid           Grid
+	Active         *Figure
+	Figures        []Figure
+	ActiveMoveTick float32
+	BottomRight    rl.Vector2
 }
 
 func (w *World) PrepareFigure() {
@@ -232,57 +241,70 @@ func (w *World) ProcessInput(dt float32) {
 
 	if (move != rl.Vector2{}) {
 		fig := w.Active.Clone()
-		fig.Move(dt)
+		fig.Move(move)
 
 		if !isFigureCollide(&fig, w.Figures[:len(w.Figures)-1]) {
-			w.Active.Move(dt)
+			w.Active.Move(move)
 		}
+	}
+
+	if rl.IsKeyPressed(rl.KeyR) {
+		w.Active.Rotate()
+	}
+}
+
+func (f *Figure) Rotate() {
+	if len(f.Cells) == 0 {
+		return
+	}
+
+	// Rotate cells 90 degrees clockwise around the figure's origin
+	for i := range f.Cells {
+		local := rl.NewVector2(f.Cells[i].Position.X-f.Position.X, f.Cells[i].Position.Y-f.Position.Y)
+		f.Cells[i].Position = rl.NewVector2(f.Position.X-local.Y, f.Position.Y+local.X)
 	}
 }
 
 func (w *World) Update(dt float32) {
 	w.ProcessInput(dt)
 	w.PrepareFigure()
+	w.ActiveMoveTick += dt * 1000
 
-	// for _, figure := range w.Figures {
-	// 	figure.Move(dt)
-	// }
+	fmt.Printf("ActiveMoveTick: %f, dt: %f\n", w.ActiveMoveTick, dt)
 
-	// if time.Since(w.LastTime) > time.Duration(w.MoveStep)*time.Millisecond {
-	// 	w.LastTime = time.Now()
-	// 	if w.Active != nil {
-	// 		figure := w.Active.Clone()
-	// 		figure.Move(dt)
-	// 	}
+	if w.ActiveMoveTick >= MoveTick {
+		w.ActiveMoveTick -= MoveTick
+		if w.Active != nil {
+			figure := w.Active.Clone()
+			move := rl.NewVector2(0, float32(w.Grid.CellSize))
+			figure.Move(move)
+			isCollide := false
 
-	if w.Active != nil {
-		isCollide := false
+			// if figure + move outside of viewport
+			for _, cell := range figure.Cells {
+				if cell.Position.X < 0 || cell.Position.X >= w.BottomRight.X {
+					isCollide = true
+					break
+				}
 
-		// if figure + move outside of viewport
-		for _, cell := range w.Active.Cells {
-			if cell.Position.X < 0 || cell.Position.X >= w.BottomRight.X {
-				isCollide = true
-				break
+				if cell.Position.Y < 0 || cell.Position.Y >= w.BottomRight.Y {
+					isCollide = true
+					break
+				}
 			}
 
-			if cell.Position.Y < 0 || cell.Position.Y >= w.BottomRight.Y {
-				isCollide = true
-				break
+			if !isCollide {
+				isCollide = isFigureCollide(&figure, w.Figures[:len(w.Figures)-1])
 			}
-		}
 
-		if !isCollide {
-			isCollide = isFigureCollide(w.Active, w.Figures[:len(w.Figures)-1])
-		}
-
-		if isCollide {
-			w.Active.IsActive = false
-			w.Active = nil
-		} else {
-			w.Active.Move(dt)
+			if isCollide {
+				w.Active.IsActive = false
+				w.Active = nil
+			} else {
+				w.Active.Move(move)
+			}
 		}
 	}
-
 	w.DetectCombosCollisions()
 }
 
@@ -312,42 +334,5 @@ func (w *World) DetectCombosCollisions() {
 
 func main() {
 	// rl.SetConfigFlags(rl.FlagWindowHighdpi)
-	rl.InitWindow(1000, 1000, "raylib [core] example - basic window")
-	defer rl.CloseWindow()
-	rl.SetTargetFPS(60)
-
-	camera := rl.Camera2D{}
-	camera.Offset = rl.NewVector2(0, 0)
-	camera.Target = rl.NewVector2(0, 0)
-	camera.Zoom = 1
-
-	grid := Grid{}
-	grid.Size = 100
-
-	var activeFigure *Figure
-	figures := []Figure{}
-	moveStep := 1000
-	lastTime := time.Now()
-	bottomRight := rl.NewVector2(float32(rl.GetScreenWidth()), float32(rl.GetScreenHeight()))
-	world := World{
-		Grid:        grid,
-		Active:      activeFigure,
-		Figures:     figures,
-		MoveStep:    moveStep,
-		LastTime:    lastTime,
-		BottomRight: bottomRight,
-	}
-	const tick = 1.0 / 60.0
-	var accumulator float32
-
-	for !rl.WindowShouldClose() {
-		accumulator += rl.GetFrameTime()
-		for accumulator >= tick {
-			world.Update(tick)
-			accumulator -= tick
-		}
-
-		world.Render(camera)
-
-	}
+	runApp()
 }
