@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"slices"
 )
 
 type User struct {
@@ -151,13 +152,13 @@ func NewTetrisFigureZ(id int) TetrisFigure {
 // Rotate cells in 90 degrees and keep them in place relative to position
 func rotate90Cells(cells []TetrisCell, position Position, cols, rows int) []TetrisCell {
 	rotated := make([]TetrisCell, len(cells))
-	for i, cell := range cells {
-		rotated[i] = TetrisCell{
-			Position: Position{
-				// FIXME
-			},
-		}
+
+	slices.Reverse(cells)
+
+	for id, cell := range cells {
+		rotated[id] = TetrisCell{Position: Position{X: -cell.Position.Y, Y: cell.Position.X}}
 	}
+
 	return rotated
 }
 
