@@ -1,0 +1,12 @@
+// Equivalent of `make run` (go run -tags wayland ./src/.) under Delve
+[
+  {
+    "label": "run tetris",
+    "adapter": "Delve",
+    "request": "launch",
+    "mode": "debug",
+    "program": "./src/.",
+    "buildFlags": ["-tags", "wayland"],
+    "cwd": "$ZED_WORKTREE_ROOT"
+  }
+]
