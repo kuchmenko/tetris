@@ -18,10 +18,26 @@ func runApp() {
 	var inputTick float32 = 100
 	var inputTickAcc float32 = 0
 
-	tetris := NewTetris(20, 20)
+	tetris := NewTetris(10, 10)
 
 	cellSize := int32(rl.GetScreenWidth() / tetris.cols)
 	renderer := NewRenderer(rl.GetScreenWidth(), rl.GetScreenHeight(), &camera)
+	figures := []TetrisFigure{
+		NewTetrisFigureO(1),
+		NewTetrisFigureO(2),
+		NewTetrisFigureL(3),
+		NewTetrisFigureJ(4),
+		NewTetrisFigureO(5),
+	}
+
+	lastX := 0
+
+	for _, figure := range figures {
+		figure.Position.X = lastX
+		tetris.AddFigureToBottom(figure)
+		renderer.colors[figure.ID] = TetrisColors[rand.Intn(len(TetrisColors))]
+		lastX += 2
+	}
 
 	for !rl.WindowShouldClose() {
 		stepTickAcc += rl.GetFrameTime() * 1000
@@ -37,9 +53,9 @@ func runApp() {
 
 			tetris.Tick()
 
-			if tetris.currentFigure != nil {
-				if _, ok := renderer.colors[tetris.currentFigure.ID]; !ok {
-					renderer.colors[tetris.currentFigure.ID] = TetrisColors[rand.Intn(len(TetrisColors))]
+			if tetris.active != nil {
+				if _, ok := renderer.colors[tetris.active.ID]; !ok {
+					renderer.colors[tetris.active.ID] = TetrisColors[rand.Intn(len(TetrisColors))]
 				}
 			}
 		}
@@ -64,11 +80,5 @@ func runApp() {
 		}
 
 		rl.EndDrawing()
-
-		// transform tetris coordinates to screen coordinates
-		// draw tetris
-		// free spots
-		// figures with stable colors (map?)
-
 	}
 }

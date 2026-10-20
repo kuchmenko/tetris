@@ -7,6 +7,11 @@ import (
 )
 
 func handleInput(tetris *Tetris) {
+	if tetris.isFinished && rl.IsKeyPressed(rl.KeyEnter) {
+		tetris.Restart()
+		return
+	}
+
 	if tetris.isFinished {
 		return
 	}
@@ -16,6 +21,8 @@ func handleInput(tetris *Tetris) {
 		if err != nil {
 			log.Printf("handle rotate move: %s", err)
 		}
+
+		return
 	}
 
 	var move MoveDirection
@@ -40,7 +47,7 @@ func handleInput(tetris *Tetris) {
 		return
 	}
 
-	err := tetris.Move(move)
+	err := tetris.MoveActive(move)
 	if err != nil {
 		log.Printf("handle input move: %s", err)
 	}

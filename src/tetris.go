@@ -199,7 +199,7 @@ func (e *ErrRotateFailed) Error() string {
 type Tetris struct {
 	figuresCreators []func(id int) TetrisFigure
 	figures         []*TetrisFigure
-	currentFigure   *TetrisFigure
+	active          *TetrisFigure
 	lastFigureId    int
 	user            User
 	score           int
@@ -221,12 +221,14 @@ func (t *Tetris) Tick() {
 		return
 	}
 
-	if t.currentFigure == nil {
+	t.detectCombos()
+
+	if t.active == nil {
 		t.generateFigure()
 		return
 	}
 
-	err := t.Move(Down)
+	err := t.MoveActive(Down)
 	var collisionErr *ErrMoveFailed
 
 	if errors.As(err, &collisionErr) {
@@ -237,12 +239,12 @@ func (t *Tetris) Tick() {
 
 		if collisionErr.Direction == Down && collisionErr.Collision.A.Position.Y == 1 {
 			t.isFinished = true
-			t.currentFigure = nil
+			t.active = nil
 			return
 		}
 
 		if collisionErr.Collision.B.Equal(TetrisFigure{}) || collisionErr.Direction == Down {
-			t.currentFigure = nil
+			t.active = nil
 
 			return
 		}
@@ -250,7 +252,7 @@ func (t *Tetris) Tick() {
 }
 
 func (t *Tetris) generateFigure() {
-	if t.currentFigure != nil {
+	if t.active != nil {
 		return
 	}
 
@@ -258,7 +260,7 @@ func (t *Tetris) generateFigure() {
 	figure := t.figuresCreators[rand.Intn(len(t.figuresCreators))](t.lastFigureId)
 
 	t.figures = append(t.figures, &figure)
-	t.currentFigure = &figure
+	t.active = &figure
 }
 
 func (t *Tetris) DetectColission(updatedFigures []TetrisFigure) *Collision {
@@ -297,14 +299,7 @@ func (t *Tetris) DetectColission(updatedFigures []TetrisFigure) *Collision {
 	return nil
 }
 
-func (t *Tetris) Move(direction MoveDirection) error {
-	if t.currentFigure == nil {
-		return nil
-	}
-	log.Printf("Move: %v, currentFigure: %v", direction, t.currentFigure)
-
-	candidate := *t.currentFigure
-
+func (t *Tetris) moveFigure(candidate *TetrisFigure, direction MoveDirection) error {
 	switch direction {
 	case Left:
 		candidate.Position.X--
@@ -314,42 +309,155 @@ func (t *Tetris) Move(direction MoveDirection) error {
 		candidate.Position.Y++
 	}
 
-	err := t.updateCurrent(candidate)
-	if err != nil {
-		return &ErrMoveFailed{Collision: t.DetectColission([]TetrisFigure{candidate}), Direction: direction}
+	collision := t.DetectColission([]TetrisFigure{*candidate})
+	if collision != nil {
+		return &ErrMoveFailed{Collision: collision, Direction: direction}
 	}
 
 	return nil
 }
 
-func (t *Tetris) updateCurrent(candidate TetrisFigure) error {
-	collision := t.DetectColission([]TetrisFigure{candidate})
+func (t *Tetris) MoveActive(direction MoveDirection) error {
+	if t.active == nil {
+		return nil
+	}
+	log.Printf("Move: %v, currentFigure: %v", direction, t.active)
+
+	candidate := *t.active
+
+	collision := t.moveFigure(&candidate, direction)
 	if collision != nil {
-		log.Printf("collision: %v", collision)
-		return &ErrCollision{collision}
+		return collision
 	}
 
-	log.Printf("Saving currentFigure: %v", candidate)
-	t.currentFigure.Position = candidate.Position
-	t.currentFigure.Cells = candidate.Cells
-
+	t.updateCurrent(candidate)
 	return nil
+}
+
+func (t *Tetris) updateCurrent(candidate TetrisFigure) {
+	t.active.Position = candidate.Position
+	t.active.Cells = candidate.Cells
 }
 
 func (t *Tetris) Rotate() error {
-	if t.currentFigure == nil {
+	if t.active == nil {
 		return nil
 	}
-	log.Printf("Rotate: currentFigure: %v", t.currentFigure)
+	log.Printf("Rotate: currentFigure: %v", t.active)
 
-	candidate := *t.currentFigure
+	candidate := *t.active
 
 	candidate.Cells = rotate90Cells(candidate.Cells, candidate.Position, t.cols, t.rows)
 
-	err := t.updateCurrent(candidate)
-	if err != nil {
-		return &ErrRotateFailed{Collision: t.DetectColission([]TetrisFigure{candidate})}
+	collision := t.DetectColission([]TetrisFigure{candidate})
+
+	if collision != nil {
+		return &ErrRotateFailed{Collision: collision}
 	}
 
-	return t.updateCurrent(candidate)
+	t.updateCurrent(candidate)
+
+	return nil
+}
+
+func (t *Tetris) Restart() {
+	t.isFinished = false
+	t.score = 0
+
+	t.figures = nil
+	t.active = nil
+}
+
+type lineCombo struct {
+	cellsCount int
+	figures    map[int]*TetrisFigure
+}
+
+func (t *Tetris) detectCombos() {
+	rows := make(map[int]lineCombo)
+
+	for _, figure := range t.figures {
+		for _, cell := range figure.Cells {
+			position := cell.Position.Y + figure.Position.Y
+			combo := rows[position]
+
+			if combo.figures == nil {
+				combo.figures = make(map[int]*TetrisFigure)
+			}
+			combo.cellsCount++
+			combo.figures[figure.ID] = figure
+			rows[position] = combo
+		}
+	}
+	for row, combo := range rows {
+		if combo.cellsCount == t.cols {
+			for _, figure := range combo.figures {
+				cells := make([]TetrisCell, 0, len(figure.Cells))
+				for _, cell := range figure.Cells {
+					position := cell.Position.Y + figure.Position.Y
+
+					if position == row {
+						t.score += 10
+						continue
+					}
+
+					cells = append(cells, cell)
+				}
+				cellHasChanged := len(cells) != len(figure.Cells)
+				updatedFigure := *figure
+				updatedFigure.Cells = cells
+
+				if cellHasChanged {
+					err := t.moveFigure(&updatedFigure, Down)
+					if err == nil {
+						figure.Position = updatedFigure.Position
+						figure.Cells = updatedFigure.Cells
+					}
+
+					for id := range t.figures {
+						if t.figures[id].Equal(*figure) {
+							t.figures[id] = figure
+						}
+					}
+				}
+
+				if len(cells) == 0 {
+					t.removeFigure(figure)
+				}
+			}
+		}
+	}
+}
+
+func (t *Tetris) removeFigure(figure *TetrisFigure) {
+	updated := make([]*TetrisFigure, 0, len(t.figures))
+
+	for _, f := range t.figures {
+		if f.Equal(*figure) {
+			if t.active != nil && t.active.Equal(*figure) {
+				t.active = nil
+			}
+			continue
+		}
+
+		updated = append(updated, f)
+	}
+
+	t.figures = updated
+}
+
+func (t *Tetris) AddFigureToBottom(figure TetrisFigure) {
+	figureHeight := 0
+	for _, cell := range figure.Cells {
+		if cell.Position.Y > figureHeight {
+			figureHeight = cell.Position.Y
+		}
+	}
+	figure.Position.Y = t.rows - figureHeight - 1
+
+	t.figures = append(t.figures, &figure)
+
+	if figure.ID > t.lastFigureId {
+		t.lastFigureId = figure.ID
+	}
 }
