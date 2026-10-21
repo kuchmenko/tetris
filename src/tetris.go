@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"math/rand"
 	"slices"
 )
@@ -374,59 +375,62 @@ type lineCombo struct {
 }
 
 func (t *Tetris) detectCombos() {
-	rows := make(map[int]lineCombo)
+	combos := make(map[int]lineCombo)
 
 	for _, figure := range t.figures {
 		for _, cell := range figure.Cells {
 			position := cell.Position.Y + figure.Position.Y
-			combo := rows[position]
+			combo := combos[position]
 
 			if combo.figures == nil {
 				combo.figures = make(map[int]*TetrisFigure)
 			}
 			combo.cellsCount++
 			combo.figures[figure.ID] = figure
-			rows[position] = combo
+			combos[position] = combo
 		}
 	}
-	for row, combo := range rows {
+
+	clearedRows := []int{}
+
+	for id, combo := range combos {
 		if combo.cellsCount == t.cols {
-			for _, figure := range combo.figures {
-				cells := make([]TetrisCell, 0, len(figure.Cells))
-				for _, cell := range figure.Cells {
-					position := cell.Position.Y + figure.Position.Y
+			clearedRows = append(clearedRows, id)
+		}
+	}
 
-					if position == row {
-						t.score += 10
-						continue
-					}
+	for _, figure := range t.figures {
+		cells := make([]TetrisCell, 0, len(figure.Cells))
+		for _, cell := range figure.Cells {
+			position := cell.Position.Y + figure.Position.Y
 
-					cells = append(cells, cell)
-				}
-				cellHasChanged := len(cells) != len(figure.Cells)
-				updatedFigure := *figure
-				updatedFigure.Cells = cells
+			if !isClearedRow(clearedRows, position) {
+				cells = append(cells, cell)
+			}
+		}
+		t.score += 10 * (len(figure.Cells) - len(cells))
 
-				if cellHasChanged {
-					err := t.moveFigure(&updatedFigure, Down)
-					if err == nil {
-						figure.Position = updatedFigure.Position
-						figure.Cells = updatedFigure.Cells
-					}
+		if len(cells) == 0 {
+			t.removeFigure(figure)
+			continue
+		}
 
-					for id := range t.figures {
-						if t.figures[id].Equal(*figure) {
-							t.figures[id] = figure
-						}
-					}
-				}
-
-				if len(cells) == 0 {
-					t.removeFigure(figure)
+		// per-cell gravity: every surviving cell drops past cleared rows below it
+		for i := range cells {
+			position := cells[i].Position.Y + figure.Position.Y
+			for _, row := range clearedRows {
+				if row > position {
+					cells[i].Position.Y++
 				}
 			}
 		}
+
+		figure.Cells = cells
 	}
+}
+
+func isClearedRow(clearedRows []int, row int) bool {
+	return slices.Contains(clearedRows, row)
 }
 
 func (t *Tetris) removeFigure(figure *TetrisFigure) {
@@ -446,15 +450,17 @@ func (t *Tetris) removeFigure(figure *TetrisFigure) {
 	t.figures = updated
 }
 
-func (t *Tetris) AddFigureToBottom(figure TetrisFigure) {
+func (t *Tetris) getFigureHeight(figure *TetrisFigure) int {
 	figureHeight := 0
 	for _, cell := range figure.Cells {
 		if cell.Position.Y > figureHeight {
-			figureHeight = cell.Position.Y
+			figureHeight = int(math.Abs(float64(cell.Position.Y)))
 		}
 	}
-	figure.Position.Y = t.rows - figureHeight - 1
+	return figureHeight
+}
 
+func (t *Tetris) AddFigure(figure TetrisFigure) {
 	t.figures = append(t.figures, &figure)
 
 	if figure.ID > t.lastFigureId {
